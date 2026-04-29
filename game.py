@@ -4,7 +4,11 @@ GuanDan/game.py
 """
 from __future__ import annotations
 import random
-from typing import Optional, Protocol, Any
+try:
+    from typing import Optional, Protocol, Any
+except ImportError:
+    from typing import Optional, Any
+    from typing_extensions import Protocol
 
 from .card import Card, Deck
 from .constants import (
@@ -37,6 +41,7 @@ class Game:
         self.last_player_idx: int = -1
         self.pass_count: int = 0
         self.finish_order: list[int] = []
+        self.player_last_action: dict = {}  # idx -> {type:'play'|'pass', play:Play|None, cards:[Card]}
         self.round_num: int = 0
         self.phase: str = ""
         self.prev_finish_order: list[int] = []
@@ -96,6 +101,7 @@ class Game:
         self.last_play = None
         self.last_player_idx = -1
         self.pass_count = 0
+        self.player_last_action = {}
         self.bridge.broadcast_state()
 
         while len(self.finish_order) < 3:
@@ -108,6 +114,7 @@ class Game:
             if is_free:
                 self.last_play = None
                 self.pass_count = 0
+                self.player_last_action = {}
 
             valid = find_valid_plays(p.hand, self.last_play, self.level_rank)
             chosen = self.bridge.ask_play(self.current_idx, p.hand, self.last_play, valid)
@@ -124,6 +131,7 @@ class Game:
             if chosen is None or len(chosen) == 0:
                 # PASS
                 self.bridge.log(f"{p.name}: 过", "normal")
+                self.player_last_action[self.current_idx] = {"type": "pass"}
                 self.pass_count += 1
                 active_others = [i for i in range(4)
                                  if i != self.last_player_idx and i not in self.finish_order]
@@ -131,22 +139,45 @@ class Game:
                     self.current_idx = self.last_player_idx
                     self.last_play = None
                     self.pass_count = 0
+                    self.player_last_action = {}
                     continue
             else:
                 play = classify_hand(chosen, self.level_rank)
                 if play is None:
-                    # Invalid -- force smallest
-                    if valid:
+                    # Invalid play -- force valid or treat as pass
+                    if is_free and valid:
                         valid.sort(key=lambda x: (x.num_cards, x.key_rank))
                         chosen = valid[0].cards
                         play = valid[0]
                     else:
-                        self.current_idx = (self.current_idx + 1) % 4
-                        continue
+                        # Treat as pass (or force smallest on free turn)
+                        if is_free:
+                            chosen = [p.hand[0]]
+                            play = classify_hand(chosen, self.level_rank)
+                            if play is None:
+                                # Absolute fallback: just play a single
+                                from .rules import Play as _P
+                                play = _P(HandType.SINGLE, rank_order(chosen[0].rank, self.level_rank), chosen, 1)
+                        else:
+                            self.bridge.log(f"{p.name}: 过", "normal")
+                            self.player_last_action[self.current_idx] = {"type": "pass"}
+                            self.pass_count += 1
+                            active_others = [i for i in range(4)
+                                             if i != self.last_player_idx and i not in self.finish_order]
+                            if self.pass_count >= len(active_others):
+                                self.current_idx = self.last_player_idx
+                                self.last_play = None
+                                self.pass_count = 0
+                                self.player_last_action = {}
+                            else:
+                                self.current_idx = (self.current_idx + 1) % 4
+                            self.bridge.broadcast_state()
+                            continue
 
                 if self.last_play and not can_beat(play, self.last_play, self.level_rank):
                     # Can't beat -- treat as pass
                     self.bridge.log(f"{p.name}: 过", "normal")
+                    self.player_last_action[self.current_idx] = {"type": "pass"}
                     self.pass_count += 1
                     active_others = [i for i in range(4)
                                      if i != self.last_player_idx and i not in self.finish_order]
@@ -154,6 +185,7 @@ class Game:
                         self.current_idx = self.last_player_idx
                         self.last_play = None
                         self.pass_count = 0
+                        self.player_last_action = {}
                         continue
                 else:
                     p.remove_cards(chosen)
@@ -161,6 +193,7 @@ class Game:
                     self.last_player_idx = self.current_idx
                     self.pass_count = 0
                     card_str = " ".join(c.display(self.level_rank) for c in chosen)
+                    self.player_last_action[self.current_idx] = {"type": "play", "play": play, "cards": list(chosen)}
                     self.bridge.log(f"{p.name}: {play.hand_type.value} [{card_str}]", "play")
 
                     if p.hand_count == 0:

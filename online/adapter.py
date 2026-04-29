@@ -19,9 +19,22 @@ if _PARENT not in sys.path:
 from GuanDan.game import Game
 from GuanDan.card import Card
 from GuanDan.ai import GuandanAI
-from GuanDan.rules import Play, classify_hand, can_beat
+from GuanDan.rules import Play, classify_hand, can_beat, find_valid_plays
 from GuanDan.constants import rank_order
 from .state import serialize
+
+
+def _serialize_play(play):
+    """将 Play 对象序列化为前端可用的 dict。"""
+    return {
+        "hand_type": play.hand_type.value,
+        "key_rank": play.key_rank,
+        "num_cards": play.num_cards,
+        "uids": [c.uid for c in play.cards],
+        "cards": [{"uid": c.uid, "rank": c.rank,
+                   "suit": c.suit.value if c.suit else None,
+                   "display": c.display(0)} for c in play.cards],
+    }
 
 
 class _OnlineBridge:
@@ -39,24 +52,35 @@ class _OnlineBridge:
             return ai.decide_play(hand, lp, self._game.last_player_idx,
                                   self._game.finish_order, self._game.level_rank)
         self._b.broadcast_state()
-        data = {"last_play": _pd(lp) if lp else None, "valid_count": len(vp)}
+        # 发送合法出牌列表供前端推荐
+        valid_serialized = [_serialize_play(p) for p in vp[:50]]  # 限制数量防过大
+        data = {
+            "last_play": _pd(lp) if lp else None,
+            "valid_count": len(vp),
+            "valid_plays": valid_serialized,
+            "is_free": lp is None,
+        }
         resp = self._b.ask(pi, "play", data)
-        if resp is None or resp == "pass": return None
+        if resp is None or resp == "pass":
+            return None
         if isinstance(resp, list):
             uid_set = set(resp)
             chosen = [c for c in hand if c.uid in uid_set]
-            if chosen: return chosen
+            if chosen:
+                return chosen
         return None
 
     def ask_tribute(self, pi, hand, giving, con):
         ai = self._ais.get(pi)
-        if ai: return ai.decide_tribute(hand, giving, self._game.level_rank, con)
+        if ai:
+            return ai.decide_tribute(hand, giving, self._game.level_rank, con)
         self._b.broadcast_state()
         kind = "tribute_give" if giving else "tribute_return"
         resp = self._b.ask(pi, kind, con)
         if isinstance(resp, int):
             for c in hand:
-                if c.uid == resp: return c
+                if c.uid == resp:
+                    return c
         tmp = GuandanAI(pi)
         return tmp.decide_tribute(hand, giving, self._game.level_rank, con)
 
@@ -87,7 +111,8 @@ class GuandanGame(AbstractGame):
         self.game.run()
 
     def get_state(self):
-        if not self.game: return {}
+        if not self.game:
+            return {}
         return serialize(self.game)
 
     def on_player_disconnected(self, pi):
@@ -97,7 +122,8 @@ class GuandanGame(AbstractGame):
 
 
 def _pd(play):
-    if not play: return None
+    if not play:
+        return None
     return {"hand_type": play.hand_type.value, "key_rank": play.key_rank,
             "num_cards": play.num_cards,
             "cards": [{"uid": c.uid, "rank": c.rank,
