@@ -115,6 +115,14 @@ class GuandanGame(AbstractGame):
             return {}
         return serialize(self.game)
 
+    def get_state_for_player(self, player_idx: int) -> dict:
+        """只发送自己的手牌，其他玩家只显示数量。"""
+        base = serialize(self.game)
+        for p in base["players"]:
+            if p["idx"] != player_idx:
+                p.pop("hand", None)  # 移除他人手牌
+        return base
+
     def on_player_disconnected(self, pi):
         if self.game and pi < len(self.game.players):
             self.game.players[pi].is_human = False
