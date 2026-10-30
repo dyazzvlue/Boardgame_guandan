@@ -3,7 +3,6 @@ GuanDan/online/adapter.py
 AbstractGame 子类，集成 gameplatform。
 """
 from __future__ import annotations
-import sys, os
 from typing import Any, Optional
 
 try:
@@ -11,16 +10,11 @@ try:
 except ImportError as _e:
     raise ImportError(f"需要 gameplatform 框架: {_e}")
 
-_GD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_PARENT = os.path.dirname(_GD_DIR)
-if _PARENT not in sys.path:
-    sys.path.insert(0, _PARENT)
-
-from GuanDan.game import Game
-from GuanDan.card import Card
-from GuanDan.ai import GuandanAI
-from GuanDan.rules import Play, classify_hand, can_beat, find_valid_plays
-from GuanDan.constants import rank_order
+from ..game import Game
+from ..card import Card
+from ..ai import GuandanAI
+from ..rules import Play, classify_hand, can_beat, find_valid_plays
+from ..constants import rank_order
 from .state import serialize
 
 
@@ -117,11 +111,9 @@ class GuandanGame(AbstractGame):
 
     def get_state_for_player(self, player_idx: int) -> dict:
         """只发送自己的手牌，其他玩家只显示数量。"""
-        base = serialize(self.game)
-        for p in base["players"]:
-            if p["idx"] != player_idx:
-                p.pop("hand", None)  # 移除他人手牌
-        return base
+        if not self.game:
+            return {}
+        return serialize(self.game, viewer_idx=player_idx)
 
     def on_player_disconnected(self, pi):
         if self.game and pi < len(self.game.players):

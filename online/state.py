@@ -1,8 +1,7 @@
 """
 GuanDan/online/state.py
 序列化游戏状态。
-因为框架广播同一条消息给所有玩家，所以发送全部手牌，
-由前端根据 myIdx 只显示自己的手牌。
+默认只返回公开状态；指定玩家时仅包含该玩家的手牌。
 """
 from __future__ import annotations
 
@@ -12,8 +11,9 @@ def serialize(game, viewer_idx=-1):
     players = []
     for p in game.players:
         d = {"name": p.name, "idx": p.idx, "team": p.team.name,
-             "hand_count": p.hand_count, "is_human": p.is_human,
-             "hand": [_cd(c, lr) for c in p.hand]}
+             "hand_count": p.hand_count, "is_human": p.is_human}
+        if p.idx == viewer_idx:
+            d["hand"] = [_cd(c, lr) for c in p.hand]
         players.append(d)
     lp = None
     if game.last_play:
